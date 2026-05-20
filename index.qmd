@@ -1,6 +1,6 @@
 ---
-title: "Aliança Catalana 2024: Anàlisi exploratòria municipal"
-subtitle: "Distribució del vot i factors associats als 947 municipis de Catalunya"
+title: "El vot a Aliança Catalana: Anàlisi exploratòria"
+subtitle: "Distribució del vot i factors associats"
 author:
     name: Jordi Muñoz
     affiliation: Universitat de Barcelona
