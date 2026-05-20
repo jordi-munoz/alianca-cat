@@ -1,0 +1,1390 @@
+---
+title: "Aliança Catalana 2024: Anàlisi exploratòria municipal"
+subtitle: "Distribució del vot i factors associats als 947 municipis de Catalunya"
+author:
+    name: Jordi Muñoz
+    affiliation: Universitat de Barcelona
+    email: jordi.munoz@ub.edu
+title-block-banner: true
+lang: ca
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    toc-title: "Continguts"
+    theme: cosmo
+    fig-width: 9
+    fig-height: 5.5
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Distribució territorial del vot a Aliança Catalana (2024)
+
+```{r setup}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(scales)
+library(gt)
+library(fixest)
+library(modelsummary)
+
+dataset <- readRDS("../03-deriveddata/analytical_dataset.rds")
+
+# Quintils basats en ac_share_vot
+dataset <- dataset |>
+  mutate(
+    quintil = ntile(ac_share_vot, 5),
+    quintil_label = factor(
+      quintil,
+      levels = 1:5,
+      labels = c(
+        "Q1\n(menys vot AC)",
+        "Q2",
+        "Q3",
+        "Q4",
+        "Q5\n(més vot AC)"
+      )
+    )
+  )
+
+# Paleta de color coherent amb els mapes
+pal_quintil <- c("#FED976", "#FEB24C", "#FD8D3C", "#FC4E2A", "#B10026")
+
+tema_base <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(color = "grey40", size = 10),
+    plot.caption  = element_text(color = "grey50", size = 8, hjust = 1),
+    panel.grid.minor = element_blank(),
+    axis.title    = element_text(size = 10)
+  )
+```
+
+
+## Mapes del vot a AC
+
+Els dos mapes mostren la distribució territorial del vot a Aliança Catalana a les eleccions al Parlament de Catalunya del 2024, expressada de dues maneres: com a percentatge dels vots vàlids a candidatures i com a percentatge del cens electoral (que penalitza la baixa participació).
+
+```{r mapa, fig.cap="Font: Generalitat de Catalunya / IGN", out.width="100%"}
+knitr::include_graphics("../03-deriveddata/mapes_ac_2024.png")
+```
+***
+
+## Distribució general del vot
+
+```{r dist-vot, fig.cap="Distribució del percentatge de vot a AC sobre vots vàlids a candidatures. Cada barra representa un interval de 2 punts percentuals."}
+tall_mediana <- median(dataset$ac_share_vot, na.rm = TRUE)
+tall_mitjana  <- mean(dataset$ac_share_vot, na.rm = TRUE)
+
+ggplot(dataset, aes(x = ac_share_vot * 100)) +
+  geom_histogram(binwidth = 2, fill = "#FC4E2A", color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = tall_mediana * 100, linetype = "dashed", color = "grey30", linewidth = 0.7) +
+  annotate("text", x = tall_mediana * 100 + 0.5, y = Inf, vjust = 2, hjust = 0,
+           label = paste0("Mediana: ", round(tall_mediana * 100, 1), "%"),
+           size = 3.5, color = "grey30") +
+  scale_x_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title = "Distribució del vot a Aliança Catalana per municipi",
+    subtitle = "Eleccions al Parlament de Catalunya, 2024",
+    x = "% sobre vots vàlids a candidatures",
+    y = "Nombre de municipis",
+    caption = "Font: Generalitat de Catalunya"
+  ) +
+  tema_base
+```
+
+```{r resum-quintils}
+dataset |>
+  group_by(Quintil = quintil_label) |>
+  summarise(
+    `Núm. municipis` = n(),
+    `Vot AC mínim (%)` = round(min(ac_share_vot) * 100, 1),
+    `Vot AC màxim (%)` = round(max(ac_share_vot) * 100, 1),
+    `Vot AC mediana (%)` = round(median(ac_share_vot) * 100, 1),
+    `Població total` = format(sum(poblacio), big.mark = ".")
+  ) |>
+  gt() |>
+  tab_header(
+    title    = "Quintils del vot a Aliança Catalana",
+    subtitle = "El Q1 agrupa els municipis amb menys vot AC; el Q5, els que en tenen més"
+  ) |>
+  tab_source_note("Font: Generalitat de Catalunya (2024)") |>
+  cols_align("center", -Quintil) |>
+  opt_stylize(style = 1, color = "red")
+```
+***
+# Projeccions de vot municipal
+
+## Vot projectat a Aliança Catalana (model de transferències CEO)
+
+Aquesta secció replica l'anàlisi anterior substituint el vot real del 2024 per un **vot projectat**: quin seria el suport a AC si les taxes de transferència observades a l'Estudi 1145 del CEO s'apliquessin a la composició electoral de cada municipi. Per a cada municipi, el vot projectat és la suma ponderada dels vots de cada opció del 2024 multiplicats per la probabilitat que un votant d'aquella opció declari que avui votaria AC. El denominador és el total de vots vàlids a candidatures (equivalent a `ac_share_vot`).
+
+Les taxes globals usades (Catalunya sencera) són: PSC 3,1 %, ERC 7,0 %, Junts 21,2 %, PP 5,0 %, Comuns 0,0 %, CUP 1,6 %, VOX 9,1 %, AC 87,1 %, Altres 9,1 %, En blanc 9,1 %, Vot nul 0,0 %, No va votar 10,6 % (inclòs en la versió cens). La correlació de Pearson entre el vot real i el projectat és **r = 0,94**.
+
+```{r setup-pred}
+dataset <- dataset |>
+  mutate(
+    quintil_pred = ntile(ac_pred_share_vot, 5),
+    quintil_pred_label = factor(
+      quintil_pred,
+      levels = 1:5,
+      labels = c(
+        "Q1\n(menys vot AC)",
+        "Q2", "Q3", "Q4",
+        "Q5\n(més vot AC)"
+      )
+    ),
+    residu = ac_pred_share_vot - ac_share_vot
+  )
+```
+
+### Mapa del vot projectat
+
+```{r mapa-pred, fig.height=12, fig.cap="Font: CEO Estudi 1145 / Generalitat de Catalunya / IGN"}
+library(sf)
+library(patchwork)
+
+muni_shp <- st_read(
+  "../01-originaldata/Municipios_-754961474048907967/Municipios_IGN.shp",
+  quiet = TRUE
+) |>
+  filter(substr(CODIGOINE, 1, 2) %in% c("08", "17", "25", "43")) |>
+  left_join(
+    dataset |> select(codi_municipi, ac_pred_share_vot, residu),
+    by = c("CODIGOINE" = "codi_municipi")
+  ) |>
+  mutate(
+    pred_pct  = ac_pred_share_vot * 100,
+    residu_pp = residu * 100
+  )
+
+map_theme <- theme_void(base_size = 11) +
+  theme(
+    plot.title       = element_text(hjust = 0.5, face = "bold", margin = margin(b = 6)),
+    plot.subtitle    = element_text(hjust = 0.5, color = "grey40", margin = margin(b = 10)),
+    legend.position  = "bottom",
+    legend.title     = element_text(size = 9),
+    legend.key.width = unit(2, "cm"),
+    legend.key.height = unit(0.4, "cm"),
+    plot.margin      = margin(10, 10, 10, 10)
+  )
+
+mp1 <- ggplot(muni_shp) +
+  geom_sf(aes(fill = pred_pct), color = "white", linewidth = 0.05) +
+  scale_fill_distiller(
+    palette = "YlOrRd", direction = 1,
+    name = "%", na.value = "grey80", limits = c(0, NA)
+  ) +
+  labs(
+    title    = "Aliança Catalana: % projectat sobre vots vàlids a candidatures",
+    subtitle = "Model de transferències CEO Estudi 1145"
+  ) +
+  map_theme
+
+lim_res <- max(abs(muni_shp$residu_pp), na.rm = TRUE)
+mp2 <- ggplot(muni_shp) +
+  geom_sf(aes(fill = residu_pp), color = "white", linewidth = 0.05) +
+  scale_fill_distiller(
+    palette = "RdBu", direction = -1,
+    name = "pp", na.value = "grey80",
+    limits = c(-lim_res, lim_res)
+  ) +
+  labs(
+    title    = "Residual: vot projectat − vot real (punts percentuals)",
+    subtitle = "Vermell = sobreestimació; blau = subestimació"
+  ) +
+  map_theme
+
+mp1 / mp2 +
+  plot_annotation(
+    caption = "Font: CEO Estudi 1145 / Generalitat de Catalunya / IGN",
+    theme = theme(plot.caption = element_text(hjust = 1, color = "grey50", size = 8))
+  )
+```
+
+### Distribució del vot projectat
+
+```{r dist-pred, fig.cap="Distribució del vot AC projectat. Cada barra representa un interval de 2 punts percentuals."}
+med_pred  <- median(dataset$ac_pred_share_vot, na.rm = TRUE)
+
+ggplot(dataset, aes(x = ac_pred_share_vot * 100)) +
+  geom_histogram(binwidth = 2, fill = "#FC4E2A", color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = med_pred * 100, linetype = "dashed", color = "grey30", linewidth = 0.7) +
+  annotate("text", x = med_pred * 100 + 0.5, y = Inf, vjust = 2, hjust = 0,
+           label = paste0("Mediana: ", round(med_pred * 100, 1), "%"),
+           size = 3.5, color = "grey30") +
+  scale_x_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title    = "Distribució del vot AC projectat per municipi",
+    subtitle = "Model de transferències CEO Estudi 1145",
+    x        = "% projectat sobre vots vàlids a candidatures",
+    y        = "Nombre de municipis",
+    caption  = "Font: CEO Estudi 1145 / Generalitat de Catalunya"
+  ) +
+  tema_base
+```
+
+```{r resum-quintils-pred}
+dataset |>
+  group_by(Quintil = quintil_pred_label) |>
+  summarise(
+    `Núm. municipis`        = n(),
+    `Vot AC proj. mínim (%)` = round(min(ac_pred_share_vot) * 100, 1),
+    `Vot AC proj. màxim (%)` = round(max(ac_pred_share_vot) * 100, 1),
+    `Vot AC proj. mediana (%)` = round(median(ac_pred_share_vot) * 100, 1),
+    `Població total`        = format(sum(poblacio), big.mark = ".")
+  ) |>
+  gt() |>
+  tab_header(
+    title    = "Quintils del vot AC projectat",
+    subtitle = "El Q1 agrupa els municipis amb menys vot AC projectat; el Q5, els que en tenen més"
+  ) |>
+  tab_source_note("Font: CEO Estudi 1145 / Generalitat de Catalunya (2024)") |>
+  cols_align("center", -Quintil) |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Comparació: vot real vs. vot projectat
+
+```{r scatter-real-pred, fig.cap="Cada punt és un municipi. La línia discontínua és la bisectriu (vot real = vot projectat)."}
+ggplot(dataset, aes(x = ac_share_vot * 100, y = ac_pred_share_vot * 100)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(aes(color = residu * 100), alpha = 0.5, size = 1.2) +
+  scale_color_distiller(
+    palette = "RdBu", direction = -1,
+    name    = "Residual\n(pp)",
+    limits  = c(-max(abs(dataset$residu * 100), na.rm = TRUE),
+                 max(abs(dataset$residu * 100), na.rm = TRUE))
+  ) +
+  scale_x_continuous(labels = label_percent(scale = 1)) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title    = "Vot real vs. vot projectat a Aliança Catalana",
+    subtitle = paste0("947 municipis · r = ", round(cor(dataset$ac_share_vot, dataset$ac_pred_share_vot), 2)),
+    x        = "Vot real 2024 (% vots vàlids)",
+    y        = "Vot projectat (% vots vàlids)",
+    caption  = "Font: CEO Estudi 1145 / Generalitat de Catalunya"
+  ) +
+  tema_base +
+  theme(legend.position = "right")
+```
+***
+
+## Vot estimat per MRP (regressió multinivell amb postestratificació)
+
+Aquesta secció replica l'anàlisi anterior substituint el vot real i el vot projectat per transferències per un **vot estimat via MRP** (*multilevel regression with poststratification*): un model `glmer` ajustat amb les dades individuals del CEO 1145 que prediu la probabilitat de votar AC en funció del record de vot 2024, el sexe, el grup d'edat i el lloc de naixement, amb efectes aleatoris per grup d'edat i comarca/municipi. El marc de postestratificació combina els marges demogràfics del Padró INE 2024 i la distribució real del vot per municipi. 
+
+```{r setup-mrp}
+dataset <- dataset |>
+  mutate(
+    quintil_mrp = ntile(mrp_recall, 5),
+    quintil_mrp_label = factor(
+      quintil_mrp,
+      levels = 1:5,
+      labels = c(
+        "Q1\n(menys vot AC)",
+        "Q2", "Q3", "Q4",
+        "Q5\n(més vot AC)"
+      )
+    ),
+    residu_mrp = mrp_recall - ac_share_vot
+  )
+```
+
+### Mapa del vot estimat per MRP
+
+```{r mapa-mrp, fig.height=12, fig.cap="Font: CEO Estudi 1145 / INE Padrón 2024 / Generalitat de Catalunya / IGN"}
+library(sf)
+library(patchwork)
+
+muni_shp_mrp <- st_read(
+  "../01-originaldata/Municipios_-754961474048907967/Municipios_IGN.shp",
+  quiet = TRUE
+) |>
+  filter(substr(CODIGOINE, 1, 2) %in% c("08", "17", "25", "43")) |>
+  left_join(
+    dataset |> select(codi_municipi, mrp_recall, residu_mrp),
+    by = c("CODIGOINE" = "codi_municipi")
+  ) |>
+  mutate(
+    mrp_pct    = mrp_recall * 100,
+    residu_pp  = residu_mrp * 100
+  )
+
+map_theme_mrp <- theme_void(base_size = 11) +
+  theme(
+    plot.title        = element_text(hjust = 0.5, face = "bold", margin = margin(b = 6)),
+    plot.subtitle     = element_text(hjust = 0.5, color = "grey40", margin = margin(b = 10)),
+    legend.position   = "bottom",
+    legend.title      = element_text(size = 9),
+    legend.key.width  = unit(2, "cm"),
+    legend.key.height = unit(0.4, "cm"),
+    plot.margin       = margin(10, 10, 10, 10)
+  )
+
+mm1 <- ggplot(muni_shp_mrp) +
+  geom_sf(aes(fill = mrp_pct), color = "white", linewidth = 0.05) +
+  scale_fill_distiller(
+    palette = "YlOrRd", direction = 1,
+    name = "%", na.value = "grey80", limits = c(0, NA)
+  ) +
+  labs(
+    title    = "Aliança Catalana: % estimat MRP (no calibrat) sobre vots vàlids",
+    subtitle = "Model glmer + postestratificació INE 2024 / CEO Estudi 1145"
+  ) +
+  map_theme_mrp
+
+lim_res_mrp <- max(abs(muni_shp_mrp$residu_pp), na.rm = TRUE)
+mm2 <- ggplot(muni_shp_mrp) +
+  geom_sf(aes(fill = residu_pp), color = "white", linewidth = 0.05) +
+  scale_fill_distiller(
+    palette = "RdBu", direction = -1,
+    name = "pp", na.value = "grey80",
+    limits = c(-lim_res_mrp, lim_res_mrp)
+  ) +
+  labs(
+    title    = "Diferència: estimació MRP − vot real (punts percentuals)",
+    subtitle = "Vermell = creixement; blau = baixada"
+  ) +
+  map_theme_mrp
+
+mm1 / mm2 +
+  plot_annotation(
+    caption = "Font: CEO Estudi 1145 / INE Padrón 2024 / Generalitat de Catalunya / IGN",
+    theme = theme(plot.caption = element_text(hjust = 1, color = "grey50", size = 8))
+  )
+```
+
+### Distribució del vot estimat per MRP
+
+```{r dist-mrp, fig.cap="Distribució del vot AC estimat per MRP (no calibrat). Cada barra representa un interval de 2 punts percentuals."}
+med_mrp <- median(dataset$mrp_recall, na.rm = TRUE)
+
+ggplot(dataset, aes(x = mrp_recall * 100)) +
+  geom_histogram(binwidth = 2, fill = "#FC4E2A", color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = med_mrp * 100, linetype = "dashed", color = "grey30", linewidth = 0.7) +
+  annotate("text", x = med_mrp * 100 + 0.5, y = Inf, vjust = 2, hjust = 0,
+           label = paste0("Mediana: ", round(med_mrp * 100, 1), "%"),
+           size = 3.5, color = "grey30") +
+  scale_x_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title    = "Distribució del vot AC estimat per MRP per municipi",
+    subtitle = "No calibrat · Model glmer + postestratificació INE 2024 / CEO Estudi 1145",
+    x        = "% estimat MRP sobre vots vàlids a candidatures",
+    y        = "Nombre de municipis",
+    caption  = "Font: CEO Estudi 1145 / INE Padrón 2024 / Generalitat de Catalunya"
+  ) +
+  tema_base
+```
+
+```{r resum-quintils-mrp}
+dataset |>
+  group_by(Quintil = quintil_mrp_label) |>
+  summarise(
+    `Núm. municipis`           = n(),
+    `Vot MRP mínim (%)`        = round(min(mrp_recall) * 100, 1),
+    `Vot MRP màxim (%)`        = round(max(mrp_recall) * 100, 1),
+    `Vot MRP mediana (%)`      = round(median(mrp_recall) * 100, 1),
+    `Població total`           = format(sum(poblacio), big.mark = ".")
+  ) |>
+  gt() |>
+  tab_header(
+    title    = "Quintils del vot AC estimat per MRP (no calibrat)",
+    subtitle = "El Q1 agrupa els municipis amb menys vot AC estimat; el Q5, els que en tenen més"
+  ) |>
+  tab_source_note("Font: CEO Estudi 1145 / INE Padrón 2024 / Generalitat de Catalunya (2024)") |>
+  cols_align("center", -Quintil) |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Comparació: vot 2024 vs. estimació MRP
+
+```{r scatter-real-mrp, fig.cap="Cada punt és un municipi. La línia discontínua és la bisectriu (vot real = estimació MRP). L'estimació no calibrada és sistemàticament superior al vot real."}
+ggplot(dataset, aes(x = ac_share_vot * 100, y = mrp_recall * 100)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(aes(color = residu_mrp * 100), alpha = 0.5, size = 1.2) +
+  scale_color_distiller(
+    palette = "RdBu", direction = -1,
+    name    = "Residual\n(pp)",
+    limits  = c(-max(abs(dataset$residu_mrp * 100), na.rm = TRUE),
+                 max(abs(dataset$residu_mrp * 100), na.rm = TRUE))
+  ) +
+  scale_x_continuous(labels = label_percent(scale = 1)) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title    = "Vot real vs. estimació MRP a Aliança Catalana",
+    subtitle = paste0("947 municipis · r = ",
+                      round(cor(dataset$ac_share_vot, dataset$mrp_recall,
+                                use = "complete.obs"), 2),
+                      " · estimació"),
+    x        = "Vot real 2024 (% vots vàlids)",
+    y        = "Estimació MRP (% vots vàlids)",
+    caption  = "Font: CEO Estudi 1145 / INE Padrón 2024 / Generalitat de Catalunya"
+  ) +
+  tema_base +
+  theme(legend.position = "right")
+```
+***
+# Característiques dels municipis i vot a AC
+
+En aquesta part de l'anàlisi explorem quines característiques dels municipis correlacionen amb el vot a Aliança Catalana. Aquest estudi de correlacions ens pot donar pistes explicatives. Primer mostrem la distribució d'una selecció de característiques municipals per quartil de vot a AC, i després mostrarem una sèrie de models de regressió en què hi emergeixen les correlacions parcials, controlant uns factors pels altres.
+
+## Distribució de variables explicatives, per quartils de vot a AC
+
+Valors mitjans de sis indicadors clau per a cada quartil de municipis ordenats de major a menor vot a Aliança Catalana el 2024. El Q4 engloba el 25 % de municipis amb més suport a AC; el Q1, el 25 % amb menys.
+
+```{r barres-setup}
+comerc_abs <- readRDS("../03-deriveddata/comerc_cat.rds") |>
+  filter(cnae == "Comercio, transporte y hostelería", any %in% c(2017L, 2024L)) |>
+  mutate(total_n = as.integer(total)) |>
+  select(codi_municipi, any, total_n) |>
+  pivot_wider(names_from = any, values_from = total_n, names_prefix = "n_") |>
+  left_join(dataset |> select(codi_municipi, poblacio), by = "codi_municipi") |>
+  mutate(comerc_net_per_mil_1724 = (n_2024 - n_2017) / poblacio * 1000)
+
+ds_qrt <- dataset |>
+  filter(!is.na(ac_share_vot)) |>
+  left_join(comerc_abs |> select(codi_municipi, comerc_net_per_mil_1724), by = "codi_municipi") |>
+  mutate(
+    quartil = ntile(ac_share_vot, 4),
+    quartil_label = factor(
+      quartil,
+      levels = 4:1,
+      labels = c("Q4 (+ vot AC)", "Q3", "Q2", "Q1 (- vot AC)")
+    ),
+    caiguda_2124 = indep_collapse_2124 * 100
+  )
+
+barres_df <- ds_qrt |>
+  pivot_longer(
+    cols      = c(pct_africa, caiguda_2124, porci_per_mil,
+                  carlist_mean, pct_canvi_pob, ist_change,
+                  dist_ripoll_km, dist_bcn_km,
+                  pct_estrangers, pct_africa_estrangers,
+                  industria_canvi_1724, comerc_canvi_1724,
+                  comerc_net_per_mil_1724),
+    names_to  = "variable",
+    values_to = "val"
+  ) |>
+  group_by(quartil_label, variable) |>
+  summarise(
+    mean  = mean(val, na.rm = TRUE),
+    se    = sd(val, na.rm = TRUE) / sqrt(sum(!is.na(val))),
+    ci_lo = mean - 1.96 * se,
+    ci_hi = mean + 1.96 * se,
+    n     = sum(!is.na(val)),
+    .groups = "drop"
+  )
+
+saveRDS(barres_df, "../03-deriveddata/barres_quartil.rds")
+
+pal_qrt <- c("#B10026", "#FC4E2A", "#FEB24C", "#FED976")
+
+make_barra <- function(var, title, y_lab,
+                       cap = "Font: Generalitat de Catalunya / Idescat / INE / DARP") {
+  df <- barres_df |>
+    filter(variable == var) |>
+    mutate(
+      text_y = ifelse(mean >= 0, ci_hi, ci_lo),
+      vj     = ifelse(mean >= 0, -0.4, 1.4)
+    )
+  ggplot(df, aes(x = quartil_label, y = mean, fill = quartil_label)) +
+    geom_col(width = 0.65) +
+    geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi),
+                  width = 0.2, color = "grey30", linewidth = 0.5) +
+    geom_text(aes(y = text_y, label = round(mean, 1), vjust = vj),
+              size = 3.5, color = "grey20") +
+    geom_hline(yintercept = 0, color = "grey50", linewidth = 0.3) +
+    scale_fill_manual(values = pal_qrt, guide = "none") +
+    scale_y_continuous(expand = expansion(mult = c(0.12, 0.18))) +
+    labs(title = title, x = NULL, y = y_lab, caption = cap) +
+    tema_base
+}
+
+plots_barres <- list(
+  pct_africa   = make_barra("pct_africa",    "% població amb nac. africana",           "% sobre total residents"),
+  caiguda_2124 = make_barra("caiguda_2124",  "Caiguda vot JUNTS+ERC+CUP 2021–24",    "pp del cens"),
+  porci        = make_barra("porci_per_mil", "Explotacions porcines / 1.000 hab.",     "per 1.000 hab.",  "Font: DARP (2026)"),
+  carlins      = make_barra("carlist_mean",  "Vot carlí a la Restauració (1890–1923)", "%",               "Font: carlins_restauracio.xlsx"),
+  canvi_pob    = make_barra("pct_canvi_pob", "Canvi poblacional 2017–2024",            "% canvi",         "Font: INE Padrón"),
+  canvi_ist    = make_barra("ist_change",    "Canvi en l'IST socioeconòmic 2015–23",   "punts IST",       "Font: Idescat")
+)
+
+plots_barres2 <- list(
+  dist_ripoll       = make_barra("dist_ripoll_km",       "Distància a Ripoll",                     "km",  "Font: IGN"),
+  dist_bcn          = make_barra("dist_bcn_km",          "Distància a Barcelona",                  "km",  "Font: IGN"),
+  pct_estrangers    = make_barra("pct_estrangers",        "% població estrangera",                  "% sobre total residents", "Font: Idescat (PMH, 2022)"),
+  pct_afr_estr      = make_barra("pct_africa_estrangers", "% africans sobre total estrangers",      "%",   "Font: Idescat (PMH, 2022)")
+)
+
+plots_barres3 <- list(
+  ind_canvi     = make_barra("industria_canvi_1724",    "Tancament indústria / 1.000 hab. (2017–24)",           "per 1.000 hab.", "Font: INE DIRCE"),
+  com_canvi     = make_barra("comerc_canvi_1724",       "Tancament comerç / 1.000 hab. (2017–24)",              "per 1.000 hab.", "Font: INE DIRCE"),
+  com_net       = make_barra("comerc_net_per_mil_1724", "Nous establiments de comerç / 1.000 hab. (2017–2024)", "per 1.000 hab.", "Font: INE DIRCE")
+)
+
+dir.create("../05-output", showWarnings = FALSE)
+purrr::walk2(
+  plots_barres,
+  names(plots_barres),
+  \(p, nm) ggsave(
+    paste0("../05-output/barres_quartil_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+purrr::walk2(
+  plots_barres2,
+  names(plots_barres2),
+  \(p, nm) ggsave(
+    paste0("../05-output/barres_quartil_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+purrr::walk2(
+  plots_barres3,
+  names(plots_barres3),
+  \(p, nm) ggsave(
+    paste0("../05-output/barres_quartil_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+```
+
+```{r barres-plot, fig.height=14, fig.width=10, fig.cap="Valor mitjà per quartil de vot a AC. Q4 = 25% de municipis amb màxim suport; Q1 = 25% amb mínim suport. Barres d'error: IC 95%."}
+library(patchwork)
+wrap_plots(plots_barres, ncol = 2) +
+  plot_annotation(
+    title    = "Perfil municipal per quartil de vot a Aliança Catalana 2024",
+    subtitle = "Valor mitjà de cada indicador · IC 95% · Q4 = màxim vot AC, Q1 = mínim",
+    caption  = "Font: Generalitat de Catalunya, Idescat, INE, DARP",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+```
+
+```{r barres-plot2, fig.height=10, fig.width=10, fig.cap="Distància, immigració total i composició per quartil de vot a AC. Barres d'error: IC 95%."}
+wrap_plots(plots_barres2, ncol = 2) +
+  plot_annotation(
+    title    = "Distància i immigració per quartil de vot a Aliança Catalana 2024",
+    subtitle = "Valor mitjà de cada indicador · IC 95% · Q4 = màxim vot AC, Q1 = mínim",
+    caption  = "Font: IGN, Idescat (PMH, 2022)",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+```
+
+```{r barres-plot3, fig.height=10, fig.width=10, fig.cap="Tancament d'establiments industrials i comercials (2017–2024) per quartil de vot a AC. Barres d'error: IC 95%."}
+wrap_plots(plots_barres3, ncol = 2) +
+  plot_annotation(
+    title    = "Tancament d'indústria i comerç per quartil de vot a Aliança Catalana 2024",
+    subtitle = "Valor mitjà de cada indicador · IC 95% · Q4 = màxim vot AC, Q1 = mínim",
+    caption  = "Font: INE DIRCE",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+```
+***
+## Vot a AC per quartils de cada variable explicativa
+
+Vot mitjà a Aliança Catalana el 2024 (% sobre vots a candidatures) per a cada quartil de sis indicadors clau. El Q4 engloba el 25 % de municipis amb el valor més alt de cada indicador; el Q1, el 25 % amb el valor més baix.
+
+```{r barres-inv-setup}
+vars_inv <- c(
+  pct_africa            = "% nac. africana",
+  caiguda_2124          = "Caiguda vot JUNTS+ERC+CUP 2021–24",
+  porci_per_mil         = "Explotacions porcines / 1.000 hab.",
+  carlist_mean          = "Vot carlí a la Restauració (1890–1923)",
+  pct_canvi_pob         = "Canvi poblacional 2017–2024",
+  ist_change            = "Canvi en l'IST socioeconòmic 2015–23",
+  dist_ripoll_km        = "Distància a Ripoll",
+  dist_bcn_km           = "Distància a Barcelona",
+  pct_estrangers        = "% població estrangera",
+  pct_africa_estrangers = "% africans sobre total estrangers",
+  industria_canvi_1724  = "Tancament indústria / 1.000 hab. (2017–24)",
+  comerc_canvi_1724     = "Tancament comerç / 1.000 hab. (2017–24)",
+  comerc_net_per_mil_1724 = "Nous establiments de comerç / 1.000 hab."
+)
+
+ds_inv <- ds_qrt  # ja conté caiguda_2124 i comerc_net_per_mil_1724
+
+pal_inv <- c("#FED976", "#FEB24C", "#FC4E2A", "#B10026")
+
+make_barra_inv <- function(var, title,
+                           cap = "Font: Generalitat de Catalunya / Idescat / INE / DARP") {
+  df <- ds_inv |>
+    filter(!is.na(.data[[var]]), !is.na(ac_share_vot)) |>
+    mutate(
+      q_var = ntile(.data[[var]], 4),
+      q_label = factor(
+        q_var,
+        levels = 1:4,
+        labels = c("Q1 (baix)", "Q2", "Q3", "Q4 (alt)")
+      )
+    ) |>
+    group_by(q_label) |>
+    summarise(
+      mean  = mean(ac_share_vot * 100, na.rm = TRUE),
+      se    = sd(ac_share_vot * 100, na.rm = TRUE) / sqrt(n()),
+      ci_lo = mean - 1.96 * se,
+      ci_hi = mean + 1.96 * se,
+      .groups = "drop"
+    ) |>
+    mutate(
+      text_y = ci_hi,
+      vj     = -0.4
+    )
+
+  ggplot(df, aes(x = q_label, y = mean, fill = q_label)) +
+    geom_col(width = 0.65) +
+    geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi),
+                  width = 0.2, color = "grey30", linewidth = 0.5) +
+    geom_text(aes(y = text_y, label = round(mean, 1), vjust = vj),
+              size = 3.5, color = "grey20") +
+    scale_fill_manual(values = pal_inv, guide = "none") +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.18))) +
+    labs(title = title, x = NULL, y = "% vot AC (sobre vots a candidatures)", caption = cap) +
+    tema_base
+}
+
+plots_inv <- list(
+  pct_africa   = make_barra_inv("pct_africa",    "% nac. africana"),
+  caiguda_2124 = make_barra_inv("caiguda_2124",  "Caiguda vot JUNTS+ERC+CUP 2021–24"),
+  porci        = make_barra_inv("porci_per_mil", "Explotacions porcines / 1.000 hab.",     "Font: DARP (2026)"),
+  carlins      = make_barra_inv("carlist_mean",  "Vot carlí a la Restauració (1890–1923)", "Font: carlins_restauracio.xlsx"),
+  canvi_pob    = make_barra_inv("pct_canvi_pob", "Canvi poblacional 2017–2024",            "Font: INE Padrón"),
+  canvi_ist    = make_barra_inv("ist_change",    "Canvi en l'IST socioeconòmic 2015–23",   "Font: Idescat")
+)
+
+plots_inv2 <- list(
+  dist_ripoll    = make_barra_inv("dist_ripoll_km",        "Distància a Ripoll",                     "Font: IGN"),
+  dist_bcn       = make_barra_inv("dist_bcn_km",           "Distància a Barcelona",                  "Font: IGN"),
+  pct_estrangers = make_barra_inv("pct_estrangers",         "% població estrangera",                  "Font: Idescat (PMH, 2022)"),
+  pct_afr_estr   = make_barra_inv("pct_africa_estrangers",  "% africans sobre total estrangers",      "Font: Idescat (PMH, 2022)")
+)
+
+plots_inv3 <- list(
+  ind_canvi = make_barra_inv("industria_canvi_1724",    "Tancament indústria / 1.000 hab. (2017–24)",          "Font: INE DIRCE"),
+  com_canvi = make_barra_inv("comerc_canvi_1724",       "Tancament comerç / 1.000 hab. (2017–24)",             "Font: INE DIRCE"),
+  com_net   = make_barra_inv("comerc_net_per_mil_1724", "Nous establiments de comerç / 1.000 hab. (2017–2024)", "Font: INE DIRCE")
+)
+
+purrr::walk2(
+  plots_inv, names(plots_inv),
+  \(p, nm) ggsave(
+    paste0("../05-output/vot_ac_quartils_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+purrr::walk2(
+  plots_inv2, names(plots_inv2),
+  \(p, nm) ggsave(
+    paste0("../05-output/vot_ac_quartils_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+purrr::walk2(
+  plots_inv3, names(plots_inv3),
+  \(p, nm) ggsave(
+    paste0("../05-output/vot_ac_quartils_", nm, ".png"),
+    plot = p, width = 7, height = 4.5, dpi = 150
+  )
+)
+```
+
+```{r barres-inv-plot, fig.height=14, fig.width=10, fig.cap="Vot mitjà a AC per quartil de cada indicador. Q4 = 25% de municipis amb valor més alt; Q1 = 25% amb valor més baix. Barres d'error: IC 95%."}
+p_inv1 <- wrap_plots(plots_inv, ncol = 2) +
+  plot_annotation(
+    title    = "Vot a Aliança Catalana 2024 per quartil de cada indicador",
+    subtitle = "% vot AC mitjà · IC 95% · Q4 = valor màxim de l'indicador, Q1 = mínim",
+    caption  = "Font: Generalitat de Catalunya, Idescat, INE, DARP",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+ggsave("../05-output/vot_ac_quartils_indicadors.png", plot = p_inv1, width = 10, height = 14, dpi = 150)
+p_inv1
+```
+
+```{r barres-inv-plot2, fig.height=10, fig.width=10, fig.cap="Vot mitjà a AC per quartil de distància i immigració. Barres d'error: IC 95%."}
+p_inv2 <- wrap_plots(plots_inv2, ncol = 2) +
+  plot_annotation(
+    title    = "Vot a AC per quartil de distància i immigració",
+    subtitle = "% vot AC mitjà · IC 95% · Q4 = valor màxim de l'indicador, Q1 = mínim",
+    caption  = "Font: IGN, Idescat (PMH, 2022)",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+ggsave("../05-output/vot_ac_quartils_distancia_immigracio.png", plot = p_inv2, width = 10, height = 10, dpi = 150)
+p_inv2
+```
+
+```{r barres-inv-plot3, fig.height=10, fig.width=10, fig.cap="Vot mitjà a AC per quartil de tancament d'establiments industrials i comercials (2017–2024). Barres d'error: IC 95%."}
+p_inv3 <- wrap_plots(plots_inv3, ncol = 2) +
+  plot_annotation(
+    title    = "Vot a AC per quartil de tancament d'indústria i comerç",
+    subtitle = "% vot AC mitjà · IC 95% · Q4 = valor màxim de l'indicador, Q1 = mínim",
+    caption  = "Font: INE DIRCE",
+    theme    = theme(
+      plot.title    = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(hjust = 1, color = "grey50", size = 8)
+    )
+  )
+ggsave("../05-output/vot_ac_quartils_tancament_comerc.png", plot = p_inv3, width = 10, height = 10, dpi = 150)
+p_inv3
+```
+
+***
+## Models de regressió multivariant
+
+Models OLS amb una especificació revisada dels predictors. M1 inclou immigració total, composició africana de la immigració, vot independentista 2021, caiguda del bloc independentista (2021–24), vot carlí a la Restauració, % de vot a VOX el 2021 i distància a Ripoll. M2 afegeix distància a Barcelona, explotacions porcines, mida del municipi, evolució demogràfica, Índex Socioeconòmic Territorial (IST), canvi IST, envelliment i mesquites. M3 és M2 amb efectes fixos de comarca i errors agrupats per comarca. S'estimen per als tres outcomes: vot real 2024, vot projectat (model simple de transferències CEO) i estimació MRP.
+
+```{r models-setup}
+ds_m <- dataset |>
+  mutate(
+    y_real        = ac_share_vot * 100,
+    y_pred        = ac_pred_share_vot * 100,
+    caiguda_indep = indep_collapse * 100,
+    vox21         = vox_share_2021 * 100
+  )
+
+
+
+# ── Etiquetes i GOF compartits ──
+coef_etiq <- c(
+  "pct_africa"        = "% nac. africana",
+  "caiguda_indep"     = "Caiguda independentisme (pp)",
+  "carlist_mean"      = "Vot carlí Restauració (% totes elect.)",
+  "vox21"             = "% vot VOX 2021",
+  "ist"               = "IST socioeconòmic (100 = Cat.)",
+  "ist_change"        = "Canvi IST 2015–23 (punts)",
+  "pct_65plus"        = "% 65 anys i més",
+  "dist_bcn_km"       = "Distància a Barcelona (km)",
+  "dist_ripoll_km"    = "Distància a Ripoll (km)",
+  "mesquites_per_mil" = "Mesquites / 1.000 hab.",
+  "porci_per_mil"     = "Explot. porcines / 1.000 hab.",
+  "log(poblacio)"     = "Població 2024 (log)",
+  "log_poblacio"      = "Població 2024 (log)",
+  "pct_canvi_pob"     = "Canvi poblacional 2017–24 (%)"
+)
+
+gof_sel <- tibble::tribble(
+  ~raw,          ~clean,         ~fmt,
+  "nobs",        "N",            0,
+  "r.squared",   "R²",           3,
+  "r2.within",   "R² (within)",  3
+)
+```
+
+```{r models-v2-setup}
+ds_mn <- dataset |>
+  mutate(
+    y_real      = ac_share_vot * 100,
+    y_pred      = ac_pred_share_vot * 100,
+    y_mrp       = mrp_recall * 100,
+    indep21_pct = indep21 * 100,
+    col2124     = indep_collapse_2124 * 100,
+    vox21       = vox_share_2021 * 100
+  )
+
+# ── M1: nucli geogràfic ──
+mn1_r <- feols(y_real ~ carlist_mean + dist_ripoll_km +  log(poblacio),
+               data = ds_mn, vcov = "HC1")
+mn1_p <- feols(y_pred ~ carlist_mean + dist_ripoll_km +  log(poblacio),
+               data = ds_mn, vcov = "HC1")
+mn1_m <- feols(y_mrp  ~ carlist_mean + dist_ripoll_km +  log(poblacio),
+               data = ds_mn, vcov = "HC1")
+
+# ── M2: complet sense FE ──
+mn2_r <- feols(y_real ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus,
+               data = ds_mn, vcov = "HC1")
+mn2_p <- feols(y_pred ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus,
+               data = ds_mn, vcov = "HC1")
+mn2_m <- feols(y_mrp  ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus,
+               data = ds_mn, vcov = "HC1")
+
+# ── M3: complet + FE comarca ──
+mn3_r <- feols(y_real ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus |
+                 codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+mn3_p <- feols(y_pred ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus |
+                 codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+mn3_m <- feols(y_mrp  ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus |
+                 codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+
+# ── M4: complet + tancament comerç + FE comarca ──
+mn4_r <- feols(y_real ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                 comerc_canvi_1724 | codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+mn4_p <- feols(y_pred ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                 comerc_canvi_1724 | codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+mn4_m <- feols(y_mrp  ~ carlist_mean + dist_ripoll_km + log(poblacio) +
+                 indep21_pct + col2124 + vox21 +
+                 pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                 porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                 comerc_canvi_1724 | codi_comarca,
+               data = ds_mn, vcov = ~codi_comarca)
+
+# ── M4 estandarditzat ──
+ds_mn_std <- ds_mn |>
+  mutate(
+    log_poblacio = log(poblacio),
+    across(
+      c(carlist_mean, dist_ripoll_km, log_poblacio,
+        indep21_pct, col2124, vox21,
+        pct_estrangers, pct_africa_estrangers, mesquites_per_mil,
+        porci_per_mil, pct_canvi_pob, ist, ist_change, pct_65plus,
+        comerc_canvi_1724),
+      \(x) as.vector(scale(x))
+    )
+  )
+
+mn4_r_std <- feols(y_real ~ carlist_mean + dist_ripoll_km + log_poblacio +
+                     indep21_pct + col2124 + vox21 +
+                     pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                     porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                     comerc_canvi_1724 | codi_comarca,
+                   data = ds_mn_std, vcov = ~codi_comarca)
+mn4_p_std <- feols(y_pred ~ carlist_mean + dist_ripoll_km + log_poblacio +
+                     indep21_pct + col2124 + vox21 +
+                     pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                     porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                     comerc_canvi_1724 | codi_comarca,
+                   data = ds_mn_std, vcov = ~codi_comarca)
+mn4_m_std <- feols(y_mrp  ~ carlist_mean + dist_ripoll_km + log_poblacio +
+                     indep21_pct + col2124 + vox21 +
+                     pct_estrangers + pct_africa_estrangers + mesquites_per_mil +
+                     porci_per_mil + pct_canvi_pob + ist + ist_change + pct_65plus +
+                     comerc_canvi_1724 | codi_comarca,
+                   data = ds_mn_std, vcov = ~codi_comarca)
+
+coef_etiq_mn <- c(
+  "carlist_mean"          = "Vot carlí Restauració (% totes elect.)",
+  "dist_ripoll_km"        = "Distància a Ripoll (km)",
+  "log(poblacio)"         = "Població 2024 (log)",
+  "log_poblacio"          = "Població 2024 (log)",
+  "indep21_pct"           = "Vot independentista 2021 (%)",
+  "col2124"               = "Caiguda indep. 2021–24 (pp)",
+  "vox21"                 = "% vot VOX 2021",
+  "pct_estrangers"        = "% població estrangera",
+  "pct_africa_estrangers" = "% africana s/ estrangers",
+  "mesquites_per_mil"     = "Mesquites / 1.000 hab.",
+  "porci_per_mil"         = "Explot. porcines / 1.000 hab.",
+  "pct_canvi_pob"         = "Canvi poblacional 2017–24 (%)",
+  "ist"                   = "IST socioeconòmic (100 = Cat.)",
+  "ist_change"            = "Canvi IST 2015–23 (punts)",
+  "pct_65plus"            = "% 65 anys i més",
+  "comerc_canvi_1724"     = "Tancament comerç (2017–24)"
+)
+```
+
+### Vot real 2024
+
+```{r taula-models2-real}
+modelsummary(
+  list(
+    "(M1) Geogràfic"      = mn1_r,
+    "(M2) Complet"        = mn2_r,
+    "(M3) FE comarca"     = mn3_r,
+    "(M4) + Tancament comerç" = mn4_r
+  ),
+  coef_map  = coef_etiq_mn,
+  gof_map   = gof_sel,
+  stars     = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  fmt       = fmt_decimal(3),
+  output    = "gt",
+  title     = "Determinants del vot a AC 2024 (especificació revisada) — % vot real"
+) |>
+  tab_source_note(
+    "Errors estàndard HC1 (M1–M2); agrupats per comarca (M3–M4). M3–M4 inclouen 42 efectes fixos de comarca."
+  ) |>
+  tab_source_note("* p<0,10  ** p<0,05  *** p<0,01") |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Vot projectat (model de transferències CEO)
+
+```{r taula-models2-pred}
+modelsummary(
+  list(
+    "(M1) Geogràfic"      = mn1_p,
+    "(M2) Complet"        = mn2_p,
+    "(M3) FE comarca"     = mn3_p,
+    "(M4) + Tancament comerç" = mn4_p
+  ),
+  coef_map  = coef_etiq_mn,
+  gof_map   = gof_sel,
+  stars     = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  fmt       = fmt_decimal(3),
+  output    = "gt",
+  title     = "Determinants del vot a AC 2024 (especificació revisada) — % vot projectat"
+) |>
+  tab_source_note(
+    "Errors estàndard HC1 (M1–M2); agrupats per comarca (M3–M4). M3–M4 inclouen 42 efectes fixos de comarca."
+  ) |>
+  tab_source_note("* p<0,10  ** p<0,05  *** p<0,01") |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Estimació MRP (model glmer + postestratificació)
+
+```{r taula-models2-mrp}
+modelsummary(
+  list(
+    "(M1) Geogràfic"      = mn1_m,
+    "(M2) Complet"        = mn2_m,
+    "(M3) FE comarca"     = mn3_m,
+    "(M4) + Tancament comerç" = mn4_m
+  ),
+  coef_map  = coef_etiq_mn,
+  gof_map   = gof_sel,
+  stars     = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  fmt       = fmt_decimal(3),
+  output    = "gt",
+  title     = "Determinants del vot a AC 2024 (especificació revisada) — estimació MRP"
+) |>
+  tab_source_note(
+    "Errors estàndard HC1 (M1–M2); agrupats per comarca (M3–M4). M3–M4 inclouen 42 efectes fixos de comarca. Estimació MRP no calibrada."
+  ) |>
+  tab_source_note("* p<0,10  ** p<0,05  *** p<0,01") |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Gràfic de coeficients estandarditzats (M3, tres variables dependents)
+
+Els coeficients s´interpreten com a punts percentuals de vot a AC per desviació estàndard del predictor. Els tres outcomes utilitzen el model M4 (efectes fixos de comarca, errors agrupats). Les barres mostren l'interval de confiança del 95%.
+
+```{r coef-plot2, fig.height=10, fig.cap="Coeficients estandarditzats del model M3 (especificació revisada) per als tres outcomes. Predictors escalats a SD=1. IC 95%."}
+coef_data2 <- bind_rows(
+  modelplot(list("Vot real 2024" = mn4_r_std), draw = FALSE, coef_map = coef_etiq_mn),
+  modelplot(list("Vot projectat" = mn4_p_std), draw = FALSE, coef_map = coef_etiq_mn),
+  modelplot(list("Estimació MRP" = mn4_m_std), draw = FALSE, coef_map = coef_etiq_mn)
+) |>
+  mutate(outcome = factor(model, levels = c("Vot real 2024", "Vot projectat", "Estimació MRP")))
+
+ordre_coef2 <- coef_data2 |>
+  filter(outcome == "Vot real 2024") |>
+  arrange(estimate) |>
+  pull(term) |>
+  unique()
+
+coef_data2 <- coef_data2 |>
+  mutate(term = factor(term, levels = ordre_coef2))
+
+ggplot(coef_data2, aes(
+  x = estimate, y = term,
+  color = outcome, shape = outcome
+)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  geom_linerange(
+    aes(xmin = conf.low, xmax = conf.high),
+    position = position_dodge(width = 0.5),
+    linewidth = 0.6
+  ) +
+  geom_point(
+    position = position_dodge(width = 0.5),
+    size = 2.5
+  ) +
+  scale_color_manual(
+    values = c("Vot real 2024" = "#B10026", "Vot projectat" = "#2166AC", "Estimació MRP" = "#4DAF4A"),
+    name   = NULL
+  ) +
+  scale_shape_manual(
+    values = c("Vot real 2024" = 16, "Vot projectat" = 17, "Estimació MRP" = 15),
+    name   = NULL
+  ) +
+  labs(
+    title    = "Coeficients estandarditzats — model M4 (FE comarca)",
+    subtitle = "pp de vot AC per desviació estàndard del predictor · IC 95%",
+    x        = "Efecte (pp vot AC / SD predictor)",
+    y        = NULL,
+    caption  = "Font: CEO Estudi 1145 / Generalitat de Catalunya / Idescat / INE / IGN"
+  ) +
+  tema_base +
+  theme(legend.position = "bottom")
+```
+***
+
+# Anàlisi individual: qui vota Aliança Catalana (CEO 1145)
+
+L'Estudi 1145 del Centre d'Estudis d'Opinió (CEO) conté la intenció de vot i un perfil sociodemogràfic i ideològic detallat de la ciutadania catalana. Aquesta secció analitza qui declara la intenció de votar AC i en quina mesura diverses característiques individuals s'associen a aquest suport. Es presenten tres models de probabilitat lineal (OLS) ponderat (ponderació PONDERA del CEO) que comparen l'electorat d'AC contra: (M1) la resta de partits, (M2) els partits independentistes tradicionals (Junts, ERC, CUP) i (M3) VOX. Els coeficients s'interpreten directament com a diferències en punts percentuals de probabilitat de votar AC respecte a la categoria de referència. S'utilitzen errors estàndard robustos (HC1).
+
+```{r ceo-setup}
+library(haven)
+
+comarca_veg <- c(
+  "1"  = "Camp de Tarragona",  "2"  = "Girona",
+  "3"  = "Metropolitana",      "4"  = "Alt Pirineu i Aran",
+  "5"  = "Alt Pirineu i Aran", "6"  = "Comarques Centrals",
+  "7"  = "Comarques Centrals", "8"  = "Camp de Tarragona",
+  "9"  = "Terres de l'Ebre",   "10" = "Girona",
+  "11" = "Metropolitana",      "12" = "Camp de Tarragona",
+  "13" = "Metropolitana",      "14" = "Comarques Centrals",
+  "15" = "Girona",             "16" = "Camp de Tarragona",
+  "17" = "Metropolitana",      "18" = "Ponent",
+  "19" = "Girona",             "20" = "Girona",
+  "21" = "Metropolitana",      "22" = "Terres de l'Ebre",
+  "23" = "Ponent",             "24" = "Comarques Centrals",
+  "25" = "Alt Pirineu i Aran", "26" = "Alt Pirineu i Aran",
+  "27" = "Ponent",             "28" = "Girona",
+  "29" = "Camp de Tarragona",  "30" = "Terres de l'Ebre",
+  "31" = "Girona",             "32" = "Ponent",
+  "33" = "Ponent",             "34" = "Girona",
+  "35" = "Comarques Centrals", "36" = "Camp de Tarragona",
+  "37" = "Terres de l'Ebre",   "38" = "Ponent",
+  "39" = "Alt Pirineu i Aran", "40" = "Metropolitana",
+  "41" = "Metropolitana",      "42" = "Comarques Centrals",
+  "43" = "Comarques Centrals"
+)
+
+df_ceo_raw <- read_sav("../01-originaldata/Microdades_anonimitzades_1145.sav")
+
+df_ind <- df_ceo_raw |>
+  select(
+    pes = PONDERA, comarca_n = COMARCA, sexe = SEXE, edat_gr = EDAT_GR,
+    estudis = ESTUDIS_1_15, ideol = IDEOL_0_10,
+    independencia = ACTITUD_INDEPENDENCIA, prioritat = PRIORITAT_GOVERN_1,
+    religio = RELIGIO, int_vot = INT_PARLAMENT_VOT_R,
+    pertinenca = SENTIMENT_PERTINENCA
+  ) |>
+  mutate(
+    int_vot_n = as.numeric(int_vot),
+    edu3 = factor(
+      case_when(
+        as.numeric(estudis) %in% 1:4  ~ "Obligatòria o inf.",
+        as.numeric(estudis) %in% 5:7  ~ "Secundaria",
+        as.numeric(estudis) %in% 8:15 ~ "Superior",
+        TRUE ~ NA_character_
+      ),
+      levels = c("Superior", "Secundaria", "Obligatòria o inf.")
+    ),
+    vegueria = factor(
+      comarca_veg[as.character(as.numeric(comarca_n))],
+      levels = c(
+        "Metropolitana", "Girona", "Camp de Tarragona",
+        "Terres de l'Ebre", "Ponent", "Comarques Centrals", "Alt Pirineu i Aran"
+      )
+    ),
+    genere = factor(
+      case_when(
+        as.numeric(sexe) == 1 ~ "Home",
+        as.numeric(sexe) == 2 ~ "Dona",
+        TRUE ~ NA_character_
+      ),
+      levels = c("Dona", "Home")
+    ),
+    edat_cat = factor(
+      case_when(
+        as.numeric(edat_gr) == 1 ~ "18-24",
+        as.numeric(edat_gr) == 2 ~ "25-34",
+        as.numeric(edat_gr) == 3 ~ "35-49",
+        as.numeric(edat_gr) == 4 ~ "50-64",
+        as.numeric(edat_gr) == 5 ~ "65+",
+        TRUE ~ NA_character_
+      ),
+      levels = c("35-49", "18-24", "25-34", "50-64", "65+")
+    ),
+    ideol_n = ifelse(as.numeric(ideol) %in% c(98, 99), NA_real_, as.numeric(ideol)),
+    indep = factor(
+      case_when(
+        as.numeric(independencia) == 1 ~ "Pro-independència",
+        as.numeric(independencia) == 2 ~ "Contrari/ària",
+        TRUE ~ NA_character_
+      ),
+      levels = c("Contrari/ària", "Pro-independència")
+    ),
+    prioritat_cat = factor(
+      case_when(
+        as.numeric(prioritat) == 1 ~ "Creixement econòmic",
+        as.numeric(prioritat) == 2 ~ "Reduir desigualtats",
+        as.numeric(prioritat) == 3 ~ "Relacions Cat-Esp",
+        as.numeric(prioritat) == 4 ~ "Ordre i seguretat",
+        as.numeric(prioritat) == 5 ~ "Canvi climàtic",
+        TRUE ~ NA_character_
+      ),
+      levels = c(
+        "Reduir desigualtats", "Creixement econòmic",
+        "Relacions Cat-Esp", "Ordre i seguretat", "Canvi climàtic"
+      )
+    ),
+    religio_cat = factor(
+      case_when(
+        as.numeric(religio) == 1             ~ "Catòlic/a",
+        as.numeric(religio) %in% c(8, 9)    ~ "No creient",
+        as.numeric(religio) %in% c(2:7, 80) ~ "Altra religió",
+        TRUE ~ NA_character_
+      ),
+      levels = c("No creient", "Catòlic/a", "Altra religió")
+    ),
+    sent_pertinenca = factor(
+      case_when(
+        as.numeric(pertinenca) == 1 ~ "Només espanyol/a",
+        as.numeric(pertinenca) == 2 ~ "Més esp. que cat.",
+        as.numeric(pertinenca) == 3 ~ "Tan esp. com cat.",
+        as.numeric(pertinenca) == 4 ~ "Més cat. que esp.",
+        as.numeric(pertinenca) == 5 ~ "Només català/ana",
+        TRUE ~ NA_character_
+      ),
+      levels = c(
+        "Tan esp. com cat.", "Només espanyol/a", "Més esp. que cat.",
+        "Més cat. que esp.", "Només català/ana"
+      )
+    )
+  )
+
+df_m1 <- df_ind |>
+  filter(!int_vot_n %in% c(93, 94, 96, 98, 99)) |>
+  mutate(vota_ac = as.integer(int_vot_n == 25))
+
+df_m2 <- df_ind |>
+  filter(int_vot_n %in% c(25, 21, 3, 10)) |>
+  mutate(vota_ac = as.integer(int_vot_n == 25))
+
+df_m3 <- df_ind |>
+  filter(int_vot_n %in% c(25, 23)) |>
+  mutate(vota_ac = as.integer(int_vot_n == 25))
+
+df_m1 <- df_m1 |> mutate(vota_ac_pct = vota_ac * 100)
+df_m2 <- df_m2 |> mutate(vota_ac_pct = vota_ac * 100)
+df_m3 <- df_m3 |> mutate(vota_ac_pct = vota_ac * 100)
+
+formula_ols <- vota_ac_pct ~ edat_cat + genere + edu3 + vegueria +
+  ideol_n + indep + prioritat_cat + religio_cat + sent_pertinenca
+
+m1_ols <- lm(formula_ols, data = df_m1, weights = pes)
+m2_ols <- lm(formula_ols, data = df_m2, weights = pes)
+m3_ols <- lm(formula_ols, data = df_m3, weights = pes)
+```
+
+## Perfil sociodemogràfic i ideològic
+
+El gràfic mostra, per a cada subgrup, el percentatge ponderat de persones que declaren la intenció de votar AC (sobre el total d'enquestats amb intenció de vot a un partit, N = 1.477).
+
+```{r ceo-profile, fig.height=10, fig.cap="Font: CEO, Estudi 1145. Dades ponderades."}
+prep_profile <- function(df, var, lab) {
+  df |>
+    filter(!is.na(.data[[var]])) |>
+    group_by(cat = .data[[var]]) |>
+    summarise(
+      pct = weighted.mean(vota_ac, pes) * 100,
+      n   = n(),
+      .groups = "drop"
+    ) |>
+    mutate(grup = lab)
+}
+
+df_m1_ideol <- df_m1 |>
+  mutate(ideol_gr = cut(
+    ideol_n,
+    breaks = c(-0.5, 2, 4, 5, 7, 10),
+    labels = c("0–2 (esq.)", "3–4", "5 (centre)", "6–7", "8–10 (dreta)"),
+    include.lowest = TRUE
+  ))
+
+prof_data <- bind_rows(
+  prep_profile(df_m1,       "edat_cat",        "Edat"),
+  prep_profile(df_m1,       "genere",          "Gènere"),
+  prep_profile(df_m1,       "edu3",            "Estudis"),
+  prep_profile(df_m1,       "indep",           "Posició davant la independència"),
+  prep_profile(df_m1_ideol, "ideol_gr",        "Ideologia (esquerra–dreta)"),
+  prep_profile(df_m1,       "prioritat_cat",   "Prioritat de govern"),
+  prep_profile(df_m1,       "religio_cat",     "Religió"),
+  prep_profile(df_m1,       "sent_pertinenca", "Sentiment de pertinença")
+) |>
+  mutate(
+    grup = factor(grup, levels = c(
+      "Edat", "Gènere", "Estudis",
+      "Posició davant la independència", "Ideologia (esquerra–dreta)",
+      "Prioritat de govern", "Religió", "Sentiment de pertinença"
+    )),
+    cat = as.character(cat)
+  )
+
+ggplot(prof_data, aes(x = pct, y = reorder(cat, pct))) +
+  geom_segment(aes(xend = 0, yend = reorder(cat, pct)),
+               color = "grey75", linewidth = 0.4) +
+  geom_point(size = 3, color = "#FC4E2A") +
+  facet_wrap(~grup, scales = "free_y", ncol = 2) +
+  labs(
+    title   = "Intenció de vot a Aliança Catalana per perfil de l'enquestado/a",
+    subtitle = "Percentatge ponderat dins de cada subgrup. Electorat amb intenció de vot a un partit.",
+    x       = "% que votaria AC",
+    y       = NULL,
+    caption = "Font: CEO, Estudi 1145"
+  ) +
+  tema_base +
+  theme(strip.text = element_text(face = "bold", size = 9))
+```
+
+## Models de probabilitat lineal (OLS)
+
+```{r ceo-models-fit}
+coef_lab_log <- c(
+  "edat_cat18-24"                    = "Edat: 18–24 (ref. 35–49)",
+  "edat_cat25-34"                    = "Edat: 25–34",
+  "edat_cat50-64"                    = "Edat: 50–64",
+  "edat_cat65+"                      = "Edat: 65+",
+  "genereHome"                       = "Gènere: home (ref. dona)",
+  "edu3Secundaria"                   = "Estudis: secundaria (ref. superior)",
+  "edu3Obligatòria o inf."      = "Estudis: obligatòria o inferior",
+  "vegueriaGirona"                   = "Vegueria: Girona (ref. Metrop.)",
+  "vegueriaCamp de Tarragona"        = "Vegueria: Camp de Tarragona",
+  "vegueriaTerres de l’Ebre"   = "Vegueria: Terres de l'Ebre",
+  "vegueriaPonent"                   = "Vegueria: Ponent",
+  "vegueriaComarques Centrals"       = "Vegueria: Comarques Centrals",
+  "vegueriaAlt Pirineu i Aran"       = "Vegueria: Alt Pirineu i Aran",
+  "ideol_n"                          = "Ideologia (0 esq.–10 dreta)",
+  "indepPro-independència"      = "Pro-independència (ref. contrari/ària)",
+  "prioritat_catCreixement econòmic" = "Prioritat: creixement econòmic (ref. desigualtats)",
+  "prioritat_catRelacions Cat-Esp"   = "Prioritat: relacions Cat-Esp",
+  "prioritat_catOrdre i seguretat"   = "Prioritat: ordre i seguretat",
+  "prioritat_catCanvi climàtic" = "Prioritat: canvi climàtic",
+  "religio_catCatòlic/a"        = "Religió: catòlic/a (ref. no creient)",
+  "religio_catAltra religió"    = "Religió: altra religió",
+  "sent_pertinencaNomés espanyol/a" = "Pertinença: només espanyol/a (ref. tan esp. com cat.)",
+  "sent_pertinencaMés esp. que cat." = "Pertinença: més esp. que cat.",
+  "sent_pertinencaMés cat. que esp." = "Pertinença: més cat. que esp.",
+  "sent_pertinencaNomés català/ana"  = "Pertinença: només català/ana"
+)
+
+gof_ols <- tibble::tribble(
+  ~raw,        ~clean, ~fmt,
+  "nobs",      "N",    0,
+  "r.squared", "R²",   3
+)
+```
+
+```{r ceo-taula}
+modelsummary(
+  list(
+    "(M1) AC vs. resta"         = m1_ols,
+    "(M2) AC vs. Junts/ERC/CUP" = m2_ols,
+    "(M3) AC vs. VOX"           = m3_ols
+  ),
+  coef_map  = coef_lab_log,
+  gof_map   = gof_ols,
+  vcov      = "HC1",
+  stars     = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  fmt       = fmt_decimal(1),
+  output    = "gt",
+  title     = "Determinants individuals del vot a Aliança Catalana — model de probabilitat lineal (OLS)"
+) |>
+  tab_source_note(
+    "OLS ponderat amb errors estàndard robustos HC1. Variable dependent: intenció de vot a AC (0/100). Coeficients en punts percentuals."
+  ) |>
+  tab_source_note(
+    "Cat. referència: 35–49 anys, dona, estudis superiors, vegueria Metropolitana, contrari/ària a la independència, prioritat: reduir desigualtats, no creient, tan espanyol/a com català/ana. * p<0,10  ** p<0,05  *** p<0,01"
+  ) |>
+  opt_stylize(style = 1, color = "red")
+```
+
+### Gràfic de coeficients (OLS)
+
+El gràfic presenta els coeficients OLS dels tres models en punts percentuals. La línia vertical discontínua marca el zero (cap efecte). Barres horitzontals: interval de confiança del 95% amb errors robustos HC1. Les categories de referència s'ometen per construcció.
+
+```{r ceo-coefplot, fig.height=9, fig.cap="Coeficients OLS ponderats (pp). Valors positius = major probabilitat de votar AC. IC 95% HC1. Font: CEO, Estudi 1145."}
+coef_data_ols <- bind_rows(
+  modelplot(list("AC vs. resta"         = m1_ols), draw = FALSE, vcov = "HC1"),
+  modelplot(list("AC vs. Junts/ERC/CUP" = m2_ols), draw = FALSE, vcov = "HC1"),
+  modelplot(list("AC vs. VOX"           = m3_ols), draw = FALSE, vcov = "HC1")
+) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    etiqueta = coef_lab_log[term],
+    model    = factor(model, levels = c("AC vs. resta", "AC vs. Junts/ERC/CUP", "AC vs. VOX"))
+  ) |>
+  filter(!is.na(etiqueta))
+
+ordre_coef <- coef_data_ols |>
+  filter(model == "AC vs. resta") |>
+  arrange(estimate) |>
+  pull(etiqueta)
+
+coef_data_ols <- coef_data_ols |>
+  mutate(etiqueta = factor(etiqueta, levels = unique(ordre_coef)))
+
+ggplot(coef_data_ols, aes(
+  x = estimate, y = etiqueta,
+  color = model, shape = model
+)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  geom_linerange(
+    aes(xmin = conf.low, xmax = conf.high),
+    position = position_dodge(width = 0.6),
+    linewidth = 0.5
+  ) +
+  geom_point(
+    position = position_dodge(width = 0.6),
+    size = 2
+  ) +
+  scale_color_manual(
+    values = c(
+      "AC vs. resta"         = "#B10026",
+      "AC vs. Junts/ERC/CUP" = "#2166AC",
+      "AC vs. VOX"           = "#4DAC26"
+    ),
+    name = NULL
+  ) +
+  scale_shape_manual(
+    values = c("AC vs. resta" = 16, "AC vs. Junts/ERC/CUP" = 17, "AC vs. VOX" = 15),
+    name = NULL
+  ) +
+  labs(
+    title    = "Determinants individuals del vot a AC — model de probabilitat lineal (OLS)",
+    subtitle = "Coeficients en pp · IC 95% HC1 · categoria de referència omesa per construcció",
+    x        = "Efecte en pp (>0 = major probabilitat de votar AC)",
+    y        = NULL,
+    caption  = "Font: CEO, Estudi 1145"
+  ) +
+  tema_base +
+  theme(legend.position = "bottom")
+```
+***
+
+*Dades: eleccions al Parlament de Catalunya 2024 Idescat, INE, DARP, IGN; CEO Estudi 1145 i Vall-Prat, Pau (2021), “Dataset of Historical Elections in Catalonia (DHEC)”, Mendeley Data, V2, doi: 10.17632/88vvxk4ydp.2*
