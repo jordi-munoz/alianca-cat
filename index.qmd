@@ -22,7 +22,11 @@ execute:
   message: false
 ---
 
-# Distribució territorial del vot a Aliança Catalana (2024)
+# El vot a Aliança Catalana (2024)
+
+En aquesta pàgina hi presentem algunes anàlisis sobre la distribució territorial i individual del vot a Aliança Catalana. Ens basarem en els resultats de les eleccions al Parlament de 2024, així com de projeccions basades en el darrer Baròmetre publicat pel Centre d'Estudis d'Opinió (3a onada 2025). 
+
+Les anàlisis miren, en primera instància, quina és la distribució geogràfica del suport a AC, i quina seria aquesta distribució si projectem (amb diferents tècniques) el suport previst per l'estudi del CEO sobre el territori. En segon lloc, estudiem quins factors correlacionen a nivell territorial amb el suport a AC. Ens fixarem en factors històrics (suport al Carlisme durant la restauració), geogràfics (proximitat a Ripoll), polítics (retrocés dels partits independentistes), socials (immigració, envelliment) i econòmics (comerç, sector porcí, evolució socioeconòmica dels municipis, etc.). Finalment, estudiem els factors individuals del suport a AC: edat, ideologia, identitat, religiositat, nivell d'estudis i prioritats polítiques.
 
 ```{r setup}
 library(dplyr)
@@ -122,7 +126,7 @@ dataset |>
 
 ## Vot projectat a Aliança Catalana (model de transferències CEO)
 
-Aquesta secció replica l'anàlisi anterior substituint el vot real del 2024 per un **vot projectat**: quin seria el suport a AC si les taxes de transferència observades a l'Estudi 1145 del CEO s'apliquessin a la composició electoral de cada municipi. Per a cada municipi, el vot projectat és la suma ponderada dels vots de cada opció del 2024 multiplicats per la probabilitat que un votant d'aquella opció declari que avui votaria AC. El denominador és el total de vots vàlids a candidatures (equivalent a `ac_share_vot`).
+Aquesta secció replica l'anàlisi anterior substituint el vot real del 2024 per un **vot projectat**: és una hipòtesi sobre quin seria el suport a AC si les taxes de transferència observades a l'Estudi 1145 del CEO s'apliquessin a la composició electoral de cada municipi. Per a cada municipi, el vot projectat és la suma ponderada dels vots de cada opció del 2024 multiplicats per la probabilitat que un votant d'aquella opció declari que avui votaria AC. El denominador és el total de vots vàlids a candidatures (equivalent a `ac_share_vot`).
 
 Les taxes globals usades (Catalunya sencera) són: PSC 3,1 %, ERC 7,0 %, Junts 21,2 %, PP 5,0 %, Comuns 0,0 %, CUP 1,6 %, VOX 9,1 %, AC 87,1 %, Altres 9,1 %, En blanc 9,1 %, Vot nul 0,0 %, No va votar 10,6 % (inclòs en la versió cens). La correlació de Pearson entre el vot real i el projectat és **r = 0,94**.
 
@@ -277,7 +281,7 @@ ggplot(dataset, aes(x = ac_share_vot * 100, y = ac_pred_share_vot * 100)) +
 
 ## Vot estimat per MRP (regressió multinivell amb postestratificació)
 
-Aquesta secció replica l'anàlisi anterior substituint el vot real i el vot projectat per transferències per un **vot estimat via MRP** (*multilevel regression with poststratification*): un model `glmer` ajustat amb les dades individuals del CEO 1145 que prediu la probabilitat de votar AC en funció del record de vot 2024, el sexe, el grup d'edat i el lloc de naixement, amb efectes aleatoris per grup d'edat i comarca/municipi. El marc de postestratificació combina els marges demogràfics del Padró INE 2024 i la distribució real del vot per municipi. 
+Aquesta secció replica l'anàlisi anterior substituint el vot projectat per transferències per un **vot estimat via MRP** (*multilevel regression with poststratification*): un model `glmer` ajustat amb les dades individuals del CEO 1145, que prediu la probabilitat de votar AC en funció del record de vot 2024, el sexe, el grup d'edat i el lloc de naixement, amb efectes aleatoris per grup d'edat i comarca/municipi. El marc de postestratificació combina els marges demogràfics del Padró INE 2024 i la distribució real del vot per municipi. 
 
 ```{r setup-mrp}
 dataset <- dataset |>
@@ -432,7 +436,7 @@ ggplot(dataset, aes(x = ac_share_vot * 100, y = mrp_recall * 100)) +
 ***
 # Característiques dels municipis i vot a AC
 
-En aquesta part de l'anàlisi explorem quines característiques dels municipis correlacionen amb el vot a Aliança Catalana. Aquest estudi de correlacions ens pot donar pistes explicatives. Primer mostrem la distribució d'una selecció de característiques municipals per quartil de vot a AC, i després mostrarem una sèrie de models de regressió en què hi emergeixen les correlacions parcials, controlant uns factors pels altres.
+En aquesta part de l'anàlisi explorem quines característiques dels municipis correlacionen amb el vot a Aliança Catalana. Aquest estudi de correlacions ens pot donar pistes explicatives. Primer mostrem la distribució del vot a AC per una selecció de característiques municipals. Després mostrarem una sèrie de models de regressió en què hi emergeixen les correlacions parcials, controlant uns factors pels altres.
 
 ## Distribució de variables explicatives, per quartils de vot a AC
 
@@ -598,6 +602,7 @@ wrap_plots(plots_barres3, ncol = 2) +
   )
 ```
 ***
+
 ## Vot a AC per quartils de cada variable explicativa
 
 Vot mitjà a Aliança Catalana el 2024 (% sobre vots a candidatures) per a cada quartil de sis indicadors clau. El Q4 engloba el 25 % de municipis amb el valor més alt de cada indicador; el Q1, el 25 % amb el valor més baix.
