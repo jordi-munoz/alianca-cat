@@ -1,6 +1,6 @@
 ---
-title: "El vot a Aliança Catalana: Anàlisi exploratòria"
-subtitle: "Distribució del vot i factors associats"
+title: "Aliança Catalana 2024: Anàlisi exploratòria municipal"
+subtitle: "Distribució del vot i factors associats als 947 municipis de Catalunya"
 author:
     name: Jordi Muñoz
     affiliation: Universitat de Barcelona
@@ -22,11 +22,7 @@ execute:
   message: false
 ---
 
-# El vot a Aliança Catalana (2024)
-
-En aquesta pàgina hi presentem algunes anàlisis sobre la distribució territorial i individual del vot a Aliança Catalana. Ens basarem en els resultats de les eleccions al Parlament de 2024, així com de projeccions basades en el darrer Baròmetre publicat pel Centre d'Estudis d'Opinió (3a onada 2025). 
-
-Les anàlisis miren, en primera instància, quina és la distribució geogràfica del suport a AC, i quina seria aquesta distribució si projectem (amb diferents tècniques) el suport previst per l'estudi del CEO sobre el territori. En segon lloc, estudiem quins factors correlacionen a nivell territorial amb el suport a AC. Ens fixarem en factors històrics (suport al Carlisme durant la restauració), geogràfics (proximitat a Ripoll), polítics (retrocés dels partits independentistes), socials (immigració, envelliment) i econòmics (comerç, sector porcí, evolució socioeconòmica dels municipis, etc.). Finalment, estudiem els factors individuals del suport a AC: edat, ideologia, identitat, religiositat, nivell d'estudis i prioritats polítiques.
+# Distribució territorial del vot a Aliança Catalana (2024)
 
 ```{r setup}
 library(dplyr)
@@ -68,6 +64,12 @@ tema_base <- theme_minimal(base_size = 12) +
     axis.title    = element_text(size = 10)
   )
 ```
+
+En aquesta pàgina hi presento més detalls de l'anàlisi de dades en què es basa l'article "Del carlisme a la Xenofòbia" publicat al diari Ara. En primer lloc, s'hi mostra la distribució territorial del vot a AC, seguida de dues projeccions basades en el darrer baròmetre publicat pel Centre d'Estudis d'Opinió. La primera es basa exclusivament en el record de vot, i la segona té en compte altres variables, i empra el mètode de la regressió multinivell amb post-estratificació. 
+
+En tercer lloc, explorem els factors que, a nivell municipal, correlacionen amb la penetració d'AC, tant a nivell bivariat com en un seguit de models multivariant. Ens fixem en factors com la davallada electoral de l'independentisme després del procés, factors socioeconòmics i territorials, i l'herència històrica del carlisme.
+
+Finalment, també presento una anàlisi de les dades individuals de l'enquesta del CEO (3a onada del Baròmetre d'Opinió Política de 2025).
 
 
 ## Mapes del vot a AC
@@ -126,7 +128,7 @@ dataset |>
 
 ## Vot projectat a Aliança Catalana (model de transferències CEO)
 
-Aquesta secció replica l'anàlisi anterior substituint el vot real del 2024 per un **vot projectat**: és una hipòtesi sobre quin seria el suport a AC si les taxes de transferència observades a l'Estudi 1145 del CEO s'apliquessin a la composició electoral de cada municipi. Per a cada municipi, el vot projectat és la suma ponderada dels vots de cada opció del 2024 multiplicats per la probabilitat que un votant d'aquella opció declari que avui votaria AC. El denominador és el total de vots vàlids a candidatures (equivalent a `ac_share_vot`).
+Aquesta secció replica l'anàlisi anterior substituint el vot real del 2024 per un **vot projectat**: quin seria el suport a AC si les taxes de transferència observades a l'Estudi 1145 del CEO s'apliquessin a la composició electoral de cada municipi. Per a cada municipi, el vot projectat és la suma ponderada dels vots de cada opció del 2024 multiplicats per la probabilitat que un votant d'aquella opció declari que avui votaria AC. El denominador és el total de vots vàlids a candidatures (equivalent a `ac_share_vot`).
 
 Les taxes globals usades (Catalunya sencera) són: PSC 3,1 %, ERC 7,0 %, Junts 21,2 %, PP 5,0 %, Comuns 0,0 %, CUP 1,6 %, VOX 9,1 %, AC 87,1 %, Altres 9,1 %, En blanc 9,1 %, Vot nul 0,0 %, No va votar 10,6 % (inclòs en la versió cens). La correlació de Pearson entre el vot real i el projectat és **r = 0,94**.
 
@@ -279,9 +281,57 @@ ggplot(dataset, aes(x = ac_share_vot * 100, y = ac_pred_share_vot * 100)) +
 ```
 ***
 
+### Vot 2024 i projecció, per comarques
+
+| # | Comarca              | 2024 (%) | Proj. (%) |
+|---|----------------------|----------|-----------|
+| 1 | Ripollès             | 25.2     | 30.8      |
+| 2 | Garrotxa             | 15.3     | 24.0      |
+| 3 | Pla d'Urgell         | 12.5     | 21.2      |
+| 4 | Alt Empordà          | 10.6     | 18.5      |
+| 5 | Osona                | 10.2     | 20.3      |
+| 6 | Berguedà             | 10.1     | 19.6      |
+| 7 | Urgell               | 9.9      | 19.6      |
+| 8 | Pla de l'Estany      | 9.9      | 20.6      |
+| 9 | Noguera              | 9.7      | 18.7      |
+|10 | Solsonès             | 9.3      | 19.1      |
+|11 | Lluçanès             | 8.8      | 20.1      |
+|12 | Bages                | 8.6      | 16.7      |
+|13 | Segarra              | 8.6      | 18.0      |
+|14 | Cerdanya             | 8.2      | 17.5      |
+|15 | Segrià               | 7.4      | 15.3      |
+|16 | Garrigues            | 7.3      | 17.4      |
+|17 | Baix Empordà         | 7.2      | 16.4      |
+|18 | Gironès              | 7.0      | 16.7      |
+|19 | Selva                | 6.5      | 15.0      |
+|20 | Moianès              | 5.9      | 15.6      |
+|21 | Baix Ebre            | 5.1      | 13.5      |
+|22 | Pallars Jussà        | 5.1      | 15.4      |
+|23 | Conca de Barberà     | 5.1      | 15.3      |
+|24 | Alt Camp             | 4.9      | 14.0      |
+|25 | Alt Penedès          | 4.7      | 13.4      |
+|26 | Alt Urgell           | 4.7      | 13.9      |
+|27 | Priorat              | 4.7      | 14.3      |
+|28 | Alta Ribagorça       | 4.6      | 12.7      |
+|29 | Ribera d'Ebre        | 4.4      | 13.6      |
+|30 | Anoia                | 4.2      | 12.3      |
+|31 | Baix Camp            | 4.2      | 12.2      |
+|32 | Maresme              | 3.7      | 12.1      |
+|33 | Montsià              | 3.7      | 11.9      |
+|34 | Vallès Oriental      | 3.2      | 11.0      |
+|35 | Pallars Sobirà       | 3.0      | 13.2      |
+|36 | Garraf               | 2.6      | 10.0      |
+|37 | Vallès Occidental    | 2.6      | 9.9       |
+|38 | Baix Penedès         | 2.6      | 9.9       |
+|39 | Tarragonès           | 2.5      | 9.7       |
+|40 | Terra Alta           | 2.1      | 11.4      |
+|41 | Barcelonès           | 1.9      | 8.9       |
+|42 | Aran                 | 1.8      | 8.6       |
+|43 | Baix Llobregat       | 1.7      | 8.2       |
+
 ## Vot estimat per MRP (regressió multinivell amb postestratificació)
 
-Aquesta secció replica l'anàlisi anterior substituint el vot projectat per transferències per un **vot estimat via MRP** (*multilevel regression with poststratification*): un model `glmer` ajustat amb les dades individuals del CEO 1145, que prediu la probabilitat de votar AC en funció del record de vot 2024, el sexe, el grup d'edat i el lloc de naixement, amb efectes aleatoris per grup d'edat i comarca/municipi. El marc de postestratificació combina els marges demogràfics del Padró INE 2024 i la distribució real del vot per municipi. 
+Ara repliquem l'anàlisi anterior substituint el vot real i el vot projectat per transferències per un **vot estimat via MRP** (*multilevel regression with poststratification*): un model `glmer` ajustat amb les dades individuals del CEO 1145 que prediu la probabilitat de votar AC en funció del record de vot 2024, el sexe, el grup d'edat i el lloc de naixement, amb efectes aleatoris per grup d'edat i comarca/municipi. El marc de postestratificació combina els marges demogràfics del Padró INE 2024 i la distribució real del vot per municipi. 
 
 ```{r setup-mrp}
 dataset <- dataset |>
@@ -436,7 +486,7 @@ ggplot(dataset, aes(x = ac_share_vot * 100, y = mrp_recall * 100)) +
 ***
 # Característiques dels municipis i vot a AC
 
-En aquesta part de l'anàlisi explorem quines característiques dels municipis correlacionen amb el vot a Aliança Catalana. Aquest estudi de correlacions ens pot donar pistes explicatives. Primer mostrem la distribució del vot a AC per una selecció de característiques municipals. Després mostrarem una sèrie de models de regressió en què hi emergeixen les correlacions parcials, controlant uns factors pels altres.
+En aquesta part de l'anàlisi explorem quines característiques dels municipis correlacionen amb el vot a Aliança Catalana. Aquest estudi de correlacions ens pot donar pistes explicatives. Primer mostrem la distribució d'una selecció de característiques municipals per quartil de vot a AC, i després mostrarem una sèrie de models de regressió en què hi emergeixen les correlacions parcials, controlant uns factors pels altres.
 
 ## Distribució de variables explicatives, per quartils de vot a AC
 
@@ -602,7 +652,6 @@ wrap_plots(plots_barres3, ncol = 2) +
   )
 ```
 ***
-
 ## Vot a AC per quartils de cada variable explicativa
 
 Vot mitjà a Aliança Catalana el 2024 (% sobre vots a candidatures) per a cada quartil de sis indicadors clau. El Q4 engloba el 25 % de municipis amb el valor més alt de cada indicador; el Q1, el 25 % amb el valor més baix.
@@ -761,7 +810,14 @@ p_inv3
 ***
 ## Models de regressió multivariant
 
-Models OLS amb una especificació revisada dels predictors. M1 inclou immigració total, composició africana de la immigració, vot independentista 2021, caiguda del bloc independentista (2021–24), vot carlí a la Restauració, % de vot a VOX el 2021 i distància a Ripoll. M2 afegeix distància a Barcelona, explotacions porcines, mida del municipi, evolució demogràfica, Índex Socioeconòmic Territorial (IST), canvi IST, envelliment i mesquites. M3 és M2 amb efectes fixos de comarca i errors agrupats per comarca. S'estimen per als tres outcomes: vot real 2024, vot projectat (model simple de transferències CEO) i estimació MRP.
+Models OLS estimats per als tres outcomes: vot real 2024, vot projectat (model simple de transferències CEO) i estimació MRP. Les especificacions s'amplien progressivament:
+
+- **M1** (nucli geogràfic i cultural): vot carlí a la Restauració (% totes eleccions), distància a Ripoll (km), distància a Barcelona (km), població 2024 (log).
+- **M2** (complet sense efectes fixos): M1 + vot independentista 2021 (%), caiguda de l'independentisme 2021–24 (pp), % vot VOX 2021, % població estrangera, % africana sobre total estrangers, mesquites per 1.000 hab., explotacions porcines per 1.000 hab., canvi poblacional 2017–24 (%), IST socioeconòmic (100 = Catalunya), canvi IST 2015–23 (punts), % 65 anys i més.
+- **M3** (efectes fixos de comarca): M2 + efectes fixos de comarca i errors agrupats per comarca.
+- **M4** (especificació completa): M3 + tancament de comerç per 1.000 hab. (2017–24). Cal tenir en compte que en aquesta anàlisi es perden observacions perquè les dades d'activitats econòmiques no estan dispobiles per als municipis més petits.
+
+Els errors estàndard són HC1 (M1–M2) i agrupats per comarca (M3–M4).
 
 ```{r models-setup}
 ds_m <- dataset |>
@@ -1309,7 +1365,7 @@ gof_ols <- tibble::tribble(
 modelsummary(
   list(
     "(M1) AC vs. resta"         = m1_ols,
-    "(M2) AC vs. Junts/ERC/CUP" = m2_ols,
+    "(M2) vs. Junts/ERC/CUP" = m2_ols,
     "(M3) AC vs. VOX"           = m3_ols
   ),
   coef_map  = coef_lab_log,
