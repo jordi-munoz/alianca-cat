@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:\\\\Users\\\\jordi\\\\OneDrive - Universitat de Barcelona\\\\01 - Recerca\\\\ac_diariara\\\\01-originaldata\" | grep -i \"1145\\\\|ceo\\\\|prioritat\")",
+      "Read(//c/Users/jordi/OneDrive - Universitat de Barcelona/01 - Recerca/ac_diariara/01-originaldata/**)",
+      "PowerShell(Rscript -e \"library\\(haven\\); df <- read_sav\\('c:/Users/jordi/OneDrive - Universitat de Barcelona/01 - Recerca/ac_diariara/01-originaldata/Microdades_anonimitzades_1145.sav'\\); cat\\('Labels:\\\\n'\\); print\\(attr\\(df[['PRIORITAT_GOVERN_1']], 'labels'\\)\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
