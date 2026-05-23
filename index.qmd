@@ -1336,7 +1336,7 @@ coef_lab_log <- c(
   "edu3Obligatòria o inf."      = "Estudis: obligatòria o inferior",
   "vegueriaGirona"                   = "Vegueria: Girona (ref. Metrop.)",
   "vegueriaCamp de Tarragona"        = "Vegueria: Camp de Tarragona",
-  "vegueriaTerres de l’Ebre"   = "Vegueria: Terres de l'Ebre",
+  "vegueriaTerres de l'Ebre"   = "Vegueria: Terres de l'Ebre",
   "vegueriaPonent"                   = "Vegueria: Ponent",
   "vegueriaComarques Centrals"       = "Vegueria: Comarques Centrals",
   "vegueriaAlt Pirineu i Aran"       = "Vegueria: Alt Pirineu i Aran",
@@ -1397,7 +1397,7 @@ coef_data_ols <- bind_rows(
 ) |>
   filter(term != "(Intercept)") |>
   mutate(
-    etiqueta = coef_lab_log[term],
+    etiqueta = coef_lab_log[as.character(term)],
     model    = factor(model, levels = c("AC vs. resta", "AC vs. Junts/ERC/CUP", "AC vs. VOX"))
   ) |>
   filter(!is.na(etiqueta))
